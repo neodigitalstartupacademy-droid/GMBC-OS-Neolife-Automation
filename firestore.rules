@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Primitive Definition
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- User Validation ---
+    function isValidUser(data) {
+      let requiredFields = ['email', 'referralCode', 'role', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.email is string && data.email.size() <= 256 &&
+             data.referralCode is string && data.referralCode.size() <= 64 &&
+             data.role in ['distributor', 'admin', 'user'] &&
+             (data.createdAt is timestamp || data.createdAt is string) &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'expired', 'trial']) &&
+             (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 32)) &&
+             (!('neoLifeShopUrl' in data) || (data.neoLifeShopUrl is string && data.neoLifeShopUrl.size() <= 512));
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && (isAdmin() || resource.data.id == request.auth.uid || resource.data.referralCode == request.query.limit); // Rough fix for list queries by ID
+      allow create: if isOwner(userId) && isValidUser(incoming()) && incoming().role == 'user';
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                    isValidUser(incoming()) &&
+                    incoming().email == existing().email &&
+                    (isAdmin() || (
+                      incoming().role == existing().role &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'whatsapp', 'neoLifeShopUrl', 'referredBy'])
+                    ));
+      allow delete: if isAdmin();
+    }
+
+    // --- Leads Validation ---
+    function isValidLead(data) {
+      return data.keys().hasAll(['distributorId', 'intent', 'message', 'status', 'createdAt']) &&
+             data.distributorId is string && data.distributorId.size() <= 128 &&
+             data.intent in ['health', 'income', 'agriculture', 'products', 'unknown'] &&
+             data.message is string && data.message.size() <= 5000 &&
+             data.status in ['new', 'contacted', 'converted'] &&
+             (data.createdAt is timestamp || data.createdAt is string);
+    }
+
+    match /leads/{leadId} {
+      allow get: if isSignedIn() && (isAdmin() || existing().distributorId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || (resource.data.distributorId == request.auth.uid));
+      allow create: if isValidLead(incoming());
+      allow update: if isSignedIn() && (isAdmin() || existing().distributorId == request.auth.uid) && 
+                    isValidLead(incoming()) &&
+                    incoming().distributorId == existing().distributorId;
+      allow delete: if isAdmin();
+    }
+
+    // --- Products Validation ---
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'category', 'shopUrl']) &&
+             data.name is string && data.name.size() <= 256 &&
+             data.category in ['health', 'agriculture', 'income'] &&
+             data.shopUrl is string && data.shopUrl.size() <= 512;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Promos Validation ---
+    function isValidPromo(data) {
+      return data.keys().hasAll(['code', 'discountType', 'value', 'isActive']) &&
+             data.code is string && data.code.size() <= 32 &&
+             data.discountType in ['percentage', 'fixed'] &&
+             data.value is number &&
+             data.isActive is bool;
+    }
+
+    match /promos/{promoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // --- Admins Collection ---
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+    }
+  }
+}

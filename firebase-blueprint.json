@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a distributor or regular user in the system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "referralCode": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "distributor", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "whatsapp": { "type": "string" },
+        "neoLifeShopUrl": { "type": "string" },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "expired", "trial"] },
+        "subscriptionEndDate": { "type": "string", "format": "date-time" },
+        "isAmbassador": { "type": "boolean" },
+        "commissionBalance": { "type": "number" },
+        "totalEarnings": { "type": "number" },
+        "referredBy": { "type": "string" }
+      },
+      "required": ["email", "referralCode", "role", "createdAt"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "A potential customer captured via chat or landing page.",
+      "type": "object",
+      "properties": {
+        "distributorId": { "type": "string" },
+        "message": { "type": "string" },
+        "intent": { "type": "string", "enum": ["health", "income", "agriculture", "products", "unknown"] },
+        "status": { "type": "string", "enum": ["new", "contacted", "converted"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["distributorId", "intent", "message", "status", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "NeoLife products in the catalog.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["health", "agriculture", "income"] },
+        "countries": { "type": "array" },
+        "shopUrl": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "shopUrl"]
+    },
+    "PromoCode": {
+      "title": "Promo Code",
+      "description": "Discount codes managed by the founder.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "value": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "expiryDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "discountType", "value", "isActive"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and subscription data."
+    },
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Captured leads."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Product catalog."
+    },
+    "/promos/{promoId}": {
+      "schema": "PromoCode",
+      "description": "Global promo codes."
+    }
+  }
+}

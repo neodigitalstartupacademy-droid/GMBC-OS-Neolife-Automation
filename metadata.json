@@ -1,0 +1,14 @@
+{
+  "name": "GMBC-OS",
+  "description": "Global Mlm Business Core Optimization System/Neolife - Business automation and smart lead management.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "AI-powered health and business coaching",
+    "Automated lead generation and tracking",
+    "Multilingual support with auto-detection",
+    "WhatsApp conversion funnel"
+  ]
+}
