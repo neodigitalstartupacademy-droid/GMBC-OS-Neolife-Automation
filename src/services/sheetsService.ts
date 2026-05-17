@@ -17,7 +17,8 @@ export async function appendLeadToSheet(accessToken: string, leadData: any) {
             leadData.intent || 'Unknown',
             leadData.message || 'No message',
             leadData.distributorId || 'Direct',
-            leadData.status || 'new'
+            leadData.status || 'new',
+            leadData.country || 'Unknown'
           ]],
         }),
       }

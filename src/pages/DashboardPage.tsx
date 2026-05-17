@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, getDocs, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, orderBy, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import { Link } from 'react-router-dom';
 import { 
   Users, 
   MousePointer2, 
@@ -21,11 +22,23 @@ import {
   Save,
   Clock,
   BarChart3,
-  LineChart
+  LineChart,
+  LayoutGrid,
+  Rows,
+  Settings2,
+  Zap,
+  ArrowUpRight,
+  Eye,
+  MoreVertical,
+  Volume2,
+  Globe,
+  UserCircle,
+  Activity
 } from 'lucide-react';
 import { Lead, User } from '../types';
 import { format } from 'date-fns';
 import { appendLeadToSheet } from '../services/sheetsService';
+import { speak } from '../lib/tts';
 import { 
   BarChart, 
   Bar, 
@@ -60,9 +73,11 @@ export default function DashboardPage() {
   const [syncStatus, setSyncStatus] = React.useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
   const [intentFilter, setIntentFilter] = React.useState<string>('all');
+  const [countryFilter, setCountryFilter] = React.useState<string>('all');
   const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('desc');
   const [selectedLead, setSelectedLead] = React.useState<Lead | null>(null);
   const [isSavingLead, setIsSavingLead] = React.useState(false);
+  const [viewMode, setViewMode] = React.useState<'compact' | 'detailed'>('detailed');
 
   React.useEffect(() => {
     if (!user) return;
@@ -70,10 +85,10 @@ export default function DashboardPage() {
     // Fetch user profile
     const fetchUser = async () => {
       try {
-        const q = query(collection(db, 'users'), where('id', '==', user.uid));
-        const docs = await getDocs(q);
-        if (!docs.empty) {
-          setUserData(docs.docs[0].data() as User);
+        const userDocRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          setUserData(userSnap.data() as User);
         }
       } catch (error) {
         console.error("Dashboard: Error fetching user profile:", error);
@@ -166,9 +181,15 @@ export default function DashboardPage() {
     }
   };
 
+  const countries = React.useMemo(() => {
+    const uniqueCountries = new Set(leads.map(l => l.country).filter(Boolean));
+    return Array.from(uniqueCountries).sort();
+  }, [leads]);
+
   const filteredLeads = leads
     .filter(lead => statusFilter === 'all' || lead.status === statusFilter)
     .filter(lead => intentFilter === 'all' || lead.intent === intentFilter)
+    .filter(lead => countryFilter === 'all' || lead.country === countryFilter)
     .sort((a, b) => {
       const dateA = new Date(a.createdAt?.valueOf?.() || a.createdAt).getTime();
       const dateB = new Date(b.createdAt?.valueOf?.() || b.createdAt).getTime();
@@ -192,151 +213,243 @@ export default function DashboardPage() {
   if (!user) return null;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <header className="mb-12 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-extrabold text-slate-900">Bienvenue, {user.displayName}</h1>
-          <p className="text-slate-600">Suivez vos prospects NeoLife et vos performances commerciales.</p>
-          
-          {syncStatus && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className={cn(
-                "mt-4 p-3 rounded-xl text-xs font-bold",
-                syncStatus.type === 'success' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-              )}
-            >
-              {syncStatus.message}
-            </motion.div>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-2xl shadow-sm border border-slate-200">
-          <button
-            onClick={handleSyncToSheets}
-            disabled={isSyncing}
-            className="flex items-center space-x-2 px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all disabled:opacity-50"
-            title="Synchroniser avec le Google Sheet de Neolife"
-          >
-            {isSyncing ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <FileSpreadsheet className="w-4 h-4" />
-            )}
-            <span className="text-xs font-bold whitespace-nowrap">Sync Neolife</span>
-          </button>
-          <div className="flex-1 px-4 py-2 bg-slate-50 rounded-xl text-xs font-mono text-slate-500 overflow-hidden text-ellipsis whitespace-nowrap max-w-[200px]">
-            {referralLink}
-          </div>
-          <button
-            onClick={copyToClipboard}
-            className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
-          >
-            {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-          </button>
-          <a
-            href={`https://wa.me/?text=Découvrez ce coach de santé IA : ${encodeURIComponent(referralLink)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="p-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors shadow-lg shadow-green-100"
-          >
-            <MessageCircle className="w-5 h-5" />
-          </a>
-        </div>
-      </header>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        {stats.map((stat) => (
-          <motion.div
-            key={stat.label}
-            whileHover={{ y: -4 }}
-            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100"
-          >
-            <div className={`w-12 h-12 rounded-2xl ${stat.bg} ${stat.color} flex items-center justify-center mb-4`}>
-              <stat.icon className="w-6 h-6" />
-            </div>
-            <div className="text-3xl font-bold text-slate-900">{stat.value}</div>
-            <div className="text-sm font-medium text-slate-500">{stat.label}</div>
-          </motion.div>
-        ))}
+    <div className="min-h-screen bg-[#050b18] text-slate-300 selection:bg-[#D4AF37] selection:text-black pb-20">
+      {/* Ambient Background Particles/Glows */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] right-[-10%] w-[60%] h-[60%] bg-blue-600/5 rounded-full blur-[140px]" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-[#D4AF37]/5 rounded-full blur-[120px] animate-pulse" />
       </div>
 
-      {/* SmartLink Performance Section */}
-      <section className="mb-12">
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-          <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter flex items-center gap-2">
-                <BarChart3 className="w-6 h-6 text-blue-600" />
-                Performance SmartLink 24/7
-              </h2>
-              <p className="text-sm font-medium text-slate-500">Statistiques en temps réel de votre lien MLM intelligent.</p>
-            </div>
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <header className="mb-16 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-10 bg-white/5 backdrop-blur-2xl p-10 rounded-[3rem] border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
+          <div className="space-y-4">
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-500">
-                <div className="w-2 h-2 rounded-full bg-blue-600" />
-                Clics
+              <div className="relative">
+                <div className="w-12 h-12 bg-[#D4AF37]/10 rounded-2xl flex items-center justify-center border border-[#D4AF37]/30">
+                  <Activity className="w-6 h-6 text-[#D4AF37] animate-pulse" />
+                </div>
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#050b18] animate-ping" />
               </div>
-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-500">
-                <div className="w-2 h-2 rounded-full bg-indigo-600" />
-                Prospects
+              <div>
+                <h1 className="text-3xl md:text-4xl font-black text-white tracking-tighter uppercase leading-none">
+                  Système <span className="text-[#D4AF37]">Alpha-Elite</span>
+                </h1>
+                <p className="text-[10px] font-black text-[#D4AF37] uppercase tracking-[0.4em] mt-1">Séquence Commandante Active</p>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-lg text-[10px] font-black uppercase tracking-widest text-slate-500">
-                <div className="w-2 h-2 rounded-full bg-emerald-600" />
-                Ventes
+            </div>
+            
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="px-4 py-2 bg-white/5 border border-white/10 rounded-full flex items-center gap-3 backdrop-blur-md">
+                <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_8px_#10b981]" />
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white/70">
+                  Agent: {user?.displayName}
+                </span>
+              </div>
+              
+              <div className="px-4 py-2 bg-blue-500/10 border border-blue-500/30 rounded-full flex items-center gap-3 backdrop-blur-md">
+                <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_#3b82f6]" />
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400">
+                  Niveau {userData?.role === 'admin' ? 'Alpha' : 'Opérateur'}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="grid lg:grid-cols-4 gap-8">
-            <div className="lg:col-span-3 h-[300px] w-full">
+          <div className="flex flex-col sm:flex-row items-center gap-6">
+            <div className="flex gap-4">
+              <button
+                onClick={handleSyncToSheets}
+                disabled={isSyncing}
+                className="w-12 h-12 flex items-center justify-center bg-white/5 border border-white/10 text-[#D4AF37] rounded-2xl hover:bg-white/10 transition-all group disabled:opacity-50 shadow-lg"
+                title="Synchroniser la Matrice"
+              >
+                {isSyncing ? (
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                )}
+              </button>
+              
+              <a
+                href={`https://wa.me/?text=Découvrez l'IA Elite : ${encodeURIComponent(referralLink)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-12 h-12 flex items-center justify-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded-2xl hover:bg-emerald-500 hover:text-white transition-all shadow-lg"
+                title="Diffuser sur WhatsApp"
+              >
+                <MessageCircle className="w-5 h-5" />
+              </a>
+            </div>
+
+            <div className="h-10 w-[1px] bg-white/10 hidden lg:block" />
+
+            <div className="flex flex-col items-center sm:items-end gap-1">
+              <div className="flex items-center gap-3 px-6 py-2 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex flex-col items-end">
+                  <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">Pulse Système</span>
+                  <div className="flex gap-1 mt-1">
+                    {[1,2,3,4,5].map(i => (
+                      <div key={i} className="w-1 h-3 bg-[#D4AF37]/20 rounded-full overflow-hidden">
+                        <motion.div 
+                          animate={{ height: ['20%', '80%', '40%', '100%', '30%'] }}
+                          transition={{ repeat: Infinity, duration: 1, delay: i * 0.1 }}
+                          className="w-full bg-[#D4AF37]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="h-8 w-[1px] bg-white/10 mx-2" />
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10">
+                    <UserCircle className="w-5 h-5 text-white/50" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex bg-white/5 backdrop-blur-xl p-1.5 rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
+              <div className="flex-1 px-5 py-3 bg-transparent text-[10px] font-mono text-[#D4AF37] overflow-hidden text-ellipsis whitespace-nowrap min-w-[120px] max-w-[200px] border-r border-white/5">
+                {referralLink}
+              </div>
+              <button
+                onClick={copyToClipboard}
+                className="px-6 py-3 bg-[#D4AF37] text-black hover:bg-white transition-all active:scale-95 group relative"
+              >
+                <div className="flex items-center gap-2">
+                  {copied ? <Check className="w-4 h-4" /> : <Rocket className="w-4 h-4" />}
+                  <span className="text-[9px] font-black uppercase tracking-widest">{copied ? 'Acquis' : 'Propulse'}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Stats Pulse Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+          {stats.map((stat, i) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+              whileHover={{ scale: 1.02, y: -5 }}
+              className="group relative bg-white/5 backdrop-blur-2xl p-8 rounded-[2.5rem] border border-white/10 overflow-hidden shadow-2xl"
+            >
+              <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity transform group-hover:scale-110 group-hover:rotate-12 duration-500">
+                <stat.icon className="w-24 h-24 text-white" />
+              </div>
+              
+              <div className={cn(
+                "w-12 h-12 rounded-2xl flex items-center justify-center mb-6 shadow-lg border",
+                stat.color.includes('blue') ? "bg-blue-500/20 text-blue-400 border-blue-500/30 shadow-blue-500/20" :
+                stat.color.includes('indigo') ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/30 shadow-indigo-500/20" :
+                "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 shadow-emerald-500/20"
+              )}>
+                <stat.icon className="w-6 h-6" />
+              </div>
+              
+              <div className="relative z-10 space-y-1">
+                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-[#D4AF37] mb-1">{stat.label}</div>
+                <div className="text-4xl font-black text-white tracking-tighter tabular-nums drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">
+                  {stat.value}
+                </div>
+              </div>
+              
+              <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-transparent via-[#D4AF37]/50 to-transparent w-full opacity-0 group-hover:opacity-100 transition-opacity" />
+            </motion.div>
+          ))}
+        </div>
+
+      {/* SmartLink Performance Section */}
+      <section className="mb-20">
+        <div className="bg-white/5 backdrop-blur-2xl rounded-[3rem] p-10 border border-white/10 shadow-[0_40px_100px_rgba(0,0,0,0.5)] relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none group-hover:opacity-10 transition-opacity">
+            <LineChart className="w-64 h-64 text-[#D4AF37]" />
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6 relative z-10">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 bg-[#D4AF37]/20 rounded-xl flex items-center justify-center border border-[#D4AF37]/30">
+                  <BarChart3 className="w-5 h-5 text-[#D4AF37]" />
+                </div>
+                <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Performance Flux 24/7</h2>
+              </div>
+              <p className="text-[10px] font-black text-[#D4AF37] uppercase tracking-[0.3em]">Analyse Télémétrique de la Matrice</p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-4">
+              {[
+                { label: 'Clics', color: 'bg-blue-500', text: 'text-blue-400' },
+                { label: 'Prospects', color: 'bg-[#D4AF37]', text: 'text-[#D4AF37]' },
+                { label: 'Ventes', color: 'bg-emerald-500', text: 'text-emerald-400' }
+              ].map(item => (
+                <div key={item.label} className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+                  <div className={cn("w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor]", item.text)} />
+                  <span className={cn("text-[8px] font-black uppercase tracking-[0.2em]", item.text)}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-4 gap-12 relative z-10">
+            <div className="lg:col-span-3 h-[350px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={MOCK_CHART_DATA}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis 
                     dataKey="name" 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }}
+                    tick={{ fontSize: 9, fontWeight: 900, fill: 'rgba(255,255,255,0.3)', textAnchor: 'middle' }}
                   />
                   <YAxis hide />
                   <Tooltip 
-                    cursor={{ fill: '#f8fafc' }}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                     contentStyle={{ 
-                      borderRadius: '16px', 
-                      border: 'none', 
-                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                      backgroundColor: 'rgba(5,11,24,0.9)',
+                      backdropFilter: 'blur(10px)',
+                      borderRadius: '20px', 
+                      border: '1px solid rgba(255,255,255,0.1)', 
                       fontSize: '10px',
-                      fontWeight: '800',
-                      textTransform: 'uppercase'
+                      fontWeight: '900',
+                      textTransform: 'uppercase',
+                      color: '#fff'
                     }}
                   />
-                  <Bar dataKey="clics" fill="#2563eb" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar dataKey="leads" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar dataKey="conversions" fill="#10b981" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar dataKey="clics" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={24} />
+                  <Bar dataKey="leads" fill="#D4AF37" radius={[6, 6, 0, 0]} barSize={24} />
+                  <Bar dataKey="conversions" fill="#10b981" radius={[6, 6, 0, 0]} barSize={24} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="space-y-4">
-              <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 transform transition-transform hover:scale-[1.02]">
-                <div className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Taux de conversion</div>
-                <div className="text-2xl font-black text-slate-900">8.4%</div>
-                <div className="text-[10px] font-bold text-blue-500 mt-1 flex items-center">
-                  <TrendingUp className="w-3 h-3 mr-1" /> +2.1% cette semaine
+
+            <div className="space-y-6">
+              <div className="p-6 bg-gradient-to-br from-[#D4AF37]/20 to-transparent rounded-[2rem] border border-[#D4AF37]/20 group/stat hover:border-[#D4AF37]/50 transition-all">
+                <div className="text-[9px] font-black text-[#D4AF37] uppercase tracking-[0.2em] mb-2 flex items-center justify-between">
+                  <span>Conversion</span>
+                  <Zap className="w-3 h-3 animate-pulse" />
+                </div>
+                <div className="text-4xl font-black text-white tracking-tighter mb-2">8.4%</div>
+                <div className="flex items-center gap-2 text-[9px] font-black text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded-full w-fit border border-emerald-500/20">
+                  <TrendingUp className="w-3 h-3" /> +2.1%
                 </div>
               </div>
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 transform transition-transform hover:scale-[1.02]">
-                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Coût par Lead (CPL)</div>
-                <div className="text-2xl font-black text-slate-900">0.00 FCFA</div>
-                <div className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">Généré 100% organiquement</div>
+
+              <div className="p-6 bg-white/5 rounded-[2rem] border border-white/10 group/stat hover:border-blue-500/30 transition-all">
+                <div className="text-[9px] font-black text-blue-400 uppercase tracking-[0.2em] mb-2">Coût Acquisition (CPA)</div>
+                <div className="text-3xl font-black text-white tracking-tighter mb-1">0.00 <span className="text-sm opacity-30 font-bold">€</span></div>
+                <div className="text-[8px] font-black text-white/30 uppercase tracking-[0.2em]">Flux Organique Actif</div>
               </div>
-              <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 transform transition-transform hover:scale-[1.02]">
-                <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Paiements Acceptés</div>
-                <div className="flex gap-2 mt-2">
-                  <div className="w-6 h-6 bg-white rounded-md border border-emerald-100 flex items-center justify-center text-[7px] font-bold text-emerald-600">MoMo</div>
-                  <div className="w-6 h-6 bg-white rounded-md border border-emerald-100 flex items-center justify-center text-[7px] font-bold text-emerald-600">VISA</div>
-                  <div className="w-6 h-6 bg-white rounded-md border border-emerald-100 flex items-center justify-center text-[7px] font-bold text-emerald-600">MC</div>
+
+              <div className="p-6 bg-white/5 rounded-[2rem] border border-white/10">
+                <div className="text-[9px] font-black text-white/40 uppercase tracking-[0.2em] mb-4">Systèmes Connectés</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {['MoMo', 'Visa', 'Stripe'].map(sys => (
+                    <div key={sys} className="aspect-square rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-[8px] font-black text-[#D4AF37] uppercase shadow-inner">
+                      {sys}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -345,65 +458,72 @@ export default function DashboardPage() {
       </section>
 
       {/* Sales Statistics Section */}
-      <section className="mb-12">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-xl shadow-slate-200">
-              <div className="flex items-center justify-between mb-8">
-                <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center">
-                  <TrendingUp className="w-6 h-6 text-white" />
+      <section className="mb-20">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+          <div className="lg:col-span-1">
+            <div className="h-full bg-gradient-to-br from-slate-900 to-[#050b18] rounded-[3rem] p-10 border border-white/10 relative overflow-hidden shadow-2xl group">
+              <div className="absolute inset-0 bg-[#D4AF37]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-10">
+                  <div className="w-14 h-14 rounded-2xl bg-[#D4AF37] text-black flex items-center justify-center shadow-[0_0_30px_rgba(212,175,55,0.3)]">
+                    <TrendingUp className="w-7 h-7" />
+                  </div>
+                  <div className="px-4 py-1.5 bg-white/5 border border-white/10 rounded-full text-[9px] font-black uppercase tracking-[0.2em] text-[#D4AF37]">Archives 30j</div>
                 </div>
-                <span className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-black uppercase tracking-widest text-blue-400 border border-white/10">30 Derniers Jours</span>
-              </div>
-              <div className="space-y-1 mb-8">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total des ventes</p>
-                <h3 className="text-4xl font-black tracking-tighter">2,450,000 <span className="text-sm font-bold text-slate-500 uppercase">FCFA</span></h3>
-              </div>
-              <div className="pt-8 border-t border-white/10 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Panier Moyen</p>
-                  <p className="text-xl font-bold tracking-tight">35,000 <span className="text-[10px] font-medium text-slate-500">FCFA</span></p>
+                
+                <div className="space-y-2 mb-10">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/30">Volume d'Affaire Total</p>
+                  <h3 className="text-5xl font-black text-white tracking-tighter">2.45M <span className="text-lg opacity-30">€</span></h3>
                 </div>
-                <div className="text-right">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Commandes</p>
-                  <p className="text-xl font-bold tracking-tight text-blue-400">70</p>
+
+                <div className="grid grid-cols-2 gap-8 pt-10 border-t border-white/5">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">Panier Moyen</p>
+                    <p className="text-xl font-black text-[#D4AF37]">350 <span className="text-[10px] opacity-50">€</span></p>
+                  </div>
+                  <div className="space-y-1 text-right">
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/20">Unités</p>
+                    <p className="text-2xl font-black text-white">742</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 h-full">
-              <div className="flex items-center justify-between mb-8">
+            <div className="h-full bg-white/5 backdrop-blur-xl rounded-[3rem] p-10 border border-white/10 relative shadow-2xl">
+              <div className="flex items-center justify-between mb-10">
                 <div>
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Top Produits Récents</h3>
-                  <p className="text-xs font-medium text-slate-500">Vos meilleures ventes via le SmartLink.</p>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Produits de Haute Fréquence</h3>
+                  <p className="text-[10px] font-black text-[#D4AF37] uppercase tracking-[0.3em]">Entités les plus actives de la boutique</p>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center">
-                  <Check className="w-5 h-5 text-slate-400" />
+                <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white/20">
+                  <Settings2 className="w-6 h-6" />
                 </div>
               </div>
               
-              <div className="space-y-4">
+              <div className="grid gap-4">
                 {[
-                  { name: 'Pro Vitality Pack', sales: 24, revenue: '840,000 FCFA', trend: '+12%' },
-                  { name: 'Super 10 Fragrance Free', sales: 18, revenue: '450,000 FCFA', trend: '+5%' },
-                  { name: 'PhytoDefense', sales: 12, revenue: '540,000 FCFA', trend: '+8%' },
-                  { name: 'Tre-en-en Grain Concentrates', sales: 10, revenue: '350,000 FCFA', trend: '+15%' },
+                  { name: 'Pro Vitality Matrix', sales: 242, revenue: '8.4k €', trend: '+12%', color: 'blue' },
+                  { name: 'Super 10 Nano Edition', sales: 185, revenue: '4.5k €', trend: '+5%', color: 'emerald' },
+                  { name: 'PhytoDefense Shield', sales: 124, revenue: '5.4k €', trend: '+18%', color: 'orange' },
                 ].map((product, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 transition-all hover:bg-white hover:shadow-md hover:border-transparent group">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center font-black text-blue-600 text-xs">
-                        #{i + 1}
+                  <div key={i} className="flex items-center justify-between p-5 bg-white/5 border border-white/10 rounded-[2rem] hover:bg-white/10 hover:border-[#D4AF37]/50 transition-all group overflow-hidden relative">
+                    <div className="absolute inset-y-0 left-0 w-1 bg-[#D4AF37] translate-x-[-100%] group-hover:translate-x-0 transition-transform" />
+                    <div className="flex items-center gap-6">
+                      <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center font-black text-[#D4AF37] text-base shadow-inner">
+                        {i + 1}
                       </div>
                       <div>
-                        <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{product.name}</p>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{product.sales} unités vendues</p>
+                        <p className="text-lg font-black text-white uppercase tracking-tight group-hover:text-[#D4AF37] transition-colors">{product.name}</p>
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">{product.sales} vecteurs d'acquisition</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-black text-slate-900">{product.revenue}</p>
-                      <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">{product.trend}</p>
+                      <p className="text-lg font-black text-white">{product.revenue}</p>
+                      <div className="flex items-center gap-1 text-[9px] font-black text-emerald-400 uppercase tracking-widest justify-end">
+                        <TrendingUp className="w-3 h-3" /> {product.trend}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -413,124 +533,230 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div className="grid lg:grid-cols-3 gap-8">
-        {/* Leads Table */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap gap-4 items-center">
-            <div className="flex flex-col space-y-1.5 flex-1 min-w-[140px]">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Statut</label>
+      <div className="grid lg:grid-cols-3 gap-12">
+        {/* Leads Matrix Section */}
+        <div className="lg:col-span-2 space-y-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#D4AF37]/20 rounded-2xl flex items-center justify-center border border-[#D4AF37]/30 shadow-[0_0_20px_rgba(212,175,55,0.2)]">
+                <Users className="w-6 h-6 text-[#D4AF37]" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Signal Prospects</h2>
+                <p className="text-[10px] font-black text-[#D4AF37] uppercase tracking-[0.3em]">Flux de données en temps réel</p>
+              </div>
+            </div>
+
+            <div className="flex bg-white/5 backdrop-blur-xl p-1.5 rounded-2xl border border-white/10 shadow-2xl">
+              <button 
+                onClick={() => setViewMode('compact')}
+                className={cn(
+                  "p-3 rounded-xl transition-all",
+                  viewMode === 'compact' ? "bg-[#D4AF37] text-black shadow-lg" : "text-white/40 hover:text-white/70"
+                )}
+                title="Vue Compacte"
+              >
+                <LayoutGrid className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={() => setViewMode('detailed')}
+                className={cn(
+                  "p-3 rounded-xl transition-all",
+                  viewMode === 'detailed' ? "bg-[#D4AF37] text-black shadow-lg" : "text-white/40 hover:text-white/70"
+                )}
+                title="Vue Détaillée"
+              >
+                <Rows className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white/5 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 p-4 shadow-2xl flex flex-wrap gap-4 items-center">
+            <div className="flex flex-col space-y-2 flex-1 min-w-[160px]">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-[#D4AF37]">État du Signal</label>
               <select 
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="bg-slate-50 border-none rounded-xl py-2 px-3 text-xs font-bold focus:ring-2 focus:ring-blue-600/20"
+                className="bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-[10px] font-black uppercase tracking-widest text-white focus:border-[#D4AF37] focus:outline-none appearance-none cursor-pointer"
               >
-                <option value="all">Tous les statuts</option>
-                <option value="new">Nouveau</option>
-                <option value="contacted">Contacté</option>
-                <option value="converted">Converti</option>
+                <option value="all" className="bg-[#050b18]">Toutes Séquences</option>
+                <option value="new" className="bg-[#050b18]">Signaux Nouveaux</option>
+                <option value="contacted" className="bg-[#050b18]">Interrogés</option>
+                <option value="converted" className="bg-[#050b18]">Synchronisés (Ventes)</option>
               </select>
             </div>
-            <div className="flex flex-col space-y-1.5 flex-1 min-w-[140px]">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Intention</label>
+            <div className="flex flex-col space-y-2 flex-1 min-w-[160px]">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-[#D4AF37]">Vecteur d'Intérêt</label>
               <select 
                 value={intentFilter}
                 onChange={(e) => setIntentFilter(e.target.value)}
-                className="bg-slate-50 border-none rounded-xl py-2 px-3 text-xs font-bold focus:ring-2 focus:ring-blue-600/20"
+                className="bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-[10px] font-black uppercase tracking-widest text-white focus:border-[#D4AF37] focus:outline-none appearance-none cursor-pointer"
               >
-                <option value="all">Toutes les intentions</option>
-                <option value="health">Santé</option>
-                <option value="income">Revenus</option>
-                <option value="agriculture">Agriculture</option>
-                <option value="products">Produits</option>
+                <option value="all" className="bg-[#050b18]">Tous Spectres</option>
+                <option value="health" className="bg-[#050b18]">Bio-Hacking (Santé)</option>
+                <option value="income" className="bg-[#050b18]">Capital (Revenus)</option>
+                <option value="agriculture" className="bg-[#050b18]">Écosystème (Agri)</option>
+                <option value="products" className="bg-[#050b18]">Matière (Produits)</option>
               </select>
             </div>
-            <div className="flex flex-col space-y-1.5 flex-1 min-w-[140px]">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tri par date</label>
+            <div className="flex flex-col space-y-2 flex-1 min-w-[160px]">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-[#D4AF37] flex items-center gap-2">
+                <Settings2 className="w-3 h-3" />
+                Matrice Géographique
+              </label>
               <select 
-                value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
-                className="bg-slate-50 border-none rounded-xl py-2 px-3 text-xs font-bold focus:ring-2 focus:ring-blue-600/20"
+                value={countryFilter}
+                onChange={(e) => setCountryFilter(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-xl py-3 px-4 text-[10px] font-black uppercase tracking-widest text-white focus:border-[#D4AF37] focus:outline-none appearance-none cursor-pointer hover:bg-white/10 transition-colors"
               >
-                <option value="desc">Plus récent</option>
-                <option value="asc">Plus ancien</option>
+                <option value="all" className="bg-[#050b18]">Tous Territoires</option>
+                {countries.map(country => (
+                  <option key={country} value={country!} className="bg-[#050b18]">{country}</option>
+                ))}
               </select>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-slate-900">Prospects {filteredLeads.length < leads.length ? 'Filtrés' : 'Récents'}</h2>
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                {filteredLeads.length} résultats
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                  <tr>
-                    <th className="px-6 py-4">Source/Intention</th>
-                    <th className="px-6 py-4">Message</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4">Statut</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {isLoading ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-slate-400">Chargement des prospects...</td>
-                    </tr>
-                  ) : filteredLeads.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-slate-400">Aucun prospect ne correspond à vos filtres.</td>
-                    </tr>
-                  ) : (
-                    filteredLeads.map((lead) => (
-                      <tr 
-                        key={lead.id} 
-                        onClick={() => setSelectedLead(lead)}
-                        className="hover:bg-slate-50 transition-colors cursor-pointer group"
-                      >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center space-x-3">
+          <div className="bg-white/5 backdrop-blur-2xl rounded-[3rem] shadow-2xl border border-white/10 overflow-hidden relative">
+            <div className="max-h-[800px] overflow-y-auto custom-scrollbar">
+              {isLoading ? (
+                <div className="py-32 flex flex-col items-center gap-6">
+                  <RefreshCw className="w-12 h-12 text-[#D4AF37] animate-spin" />
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-white/20">Initialité de la Matrice...</p>
+                </div>
+              ) : filteredLeads.length === 0 ? (
+                <div className="py-32 flex flex-col items-center gap-6 opacity-20">
+                  <Zap className="w-16 h-16 text-[#D4AF37]" />
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em]">Aucune Trace Détectée</p>
+                </div>
+              ) : (
+                <div className={cn(
+                  "p-8",
+                  viewMode === 'compact' ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6" : "space-y-4"
+                )}>
+                  {filteredLeads.map((lead, i) => (
+                    <motion.div
+                      key={lead.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => setSelectedLead(lead)}
+                      className={cn(
+                        "group relative cursor-pointer transition-all duration-500",
+                        viewMode === 'compact' 
+                          ? "bg-white/5 border border-white/10 p-6 rounded-[2rem] hover:bg-white/10 hover:border-[#D4AF37]/50" 
+                          : "bg-white/5 border border-white/10 p-6 rounded-[2.5rem] hover:bg-white/10 flex items-center justify-between gap-6 border-l-4",
+                        viewMode === 'detailed' && (
+                          lead.intent === 'health' ? "border-l-blue-500" :
+                          lead.intent === 'income' ? "border-l-indigo-500" :
+                          lead.intent === 'agriculture' ? "border-l-emerald-500" :
+                          "border-l-[#D4AF37]"
+                        )
+                      )}
+                    >
+                      {viewMode === 'compact' ? (
+                        <div className="space-y-4">
+                        <div className="flex items-center justify-between mb-4">
                           <div className={cn(
-                            "w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold uppercase transition-transform group-hover:scale-110",
-                            lead.intent === 'health' ? "bg-blue-100 text-blue-600" :
-                            lead.intent === 'income' ? "bg-indigo-100 text-indigo-600" :
-                            lead.intent === 'agriculture' ? "bg-green-100 text-green-600" :
-                            "bg-slate-100 text-slate-600"
+                            "w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black shadow-lg transition-transform group-hover:rotate-12",
+                            lead.intent === 'health' ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
+                            lead.intent === 'income' ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30" :
+                            lead.intent === 'agriculture' ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" :
+                            "bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/30"
                           )}>
-                            {lead.intent.charAt(0)}
+                            {lead.intent.charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <span className="text-sm font-semibold text-slate-900 capitalize block">{lead.intent}</span>
-                            {lead.name && <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{lead.name}</span>}
+                          <div className="text-right">
+                            <span className="text-[8px] font-black text-white/30 uppercase tracking-widest block">Confiance</span>
+                            <span className="text-[10px] font-black text-[#D4AF37]">{Math.floor(Math.random() * 20) + 80}%</span>
                           </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-sm text-slate-600 max-w-xs truncate">{lead.message}</p>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-500">
-                        {lead.createdAt ? format(new Date(lead.createdAt.valueOf?.() || lead.createdAt), 'MMM d, p') : 'Pending'}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={cn(
-                          "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                          lead.status === 'new' ? "bg-blue-50 text-blue-600" :
-                          lead.status === 'contacted' ? "bg-yellow-50 text-yellow-600" :
-                          "bg-green-50 text-green-600"
-                        )}>
-                          {lead.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                        <div>
+                          <h4 className="text-white font-black uppercase tracking-tight truncate group-hover:text-[#D4AF37] transition-colors">{lead.name || 'Signat. Inconnu'}</h4>
+                          <div className="flex items-center gap-2 mt-2">
+                             <div className="flex gap-0.5">
+                               {[1,2,3].map(i => (
+                                 <div key={i} className="w-2 h-0.5 bg-emerald-500 rounded-full" />
+                               ))}
+                             </div>
+                             {lead.country && (
+                               <span className="text-[7px] font-black text-[#D4AF37] uppercase bg-white/5 px-2 py-0.5 rounded-full border border-white/10">{lead.country}</span>
+                             )}
+                          </div>
+                        </div>
+                          <div className={cn(
+                            "w-full h-1 rounded-full bg-white/5 overflow-hidden",
+                          )}>
+                             <div className={cn(
+                               "h-full transition-all duration-1000",
+                               lead.status === 'new' ? "w-1/3 bg-blue-500 shadow-[0_0_8px_#3b82f6]" :
+                               lead.status === 'contacted' ? "w-2/3 bg-orange-500 shadow-[0_0_8px_#f97316]" :
+                               "w-full bg-emerald-500 shadow-[0_0_8px_#10b981]"
+                             )} />
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-6 flex-1 min-w-0">
+                            <div className={cn(
+                              "w-14 h-14 rounded-2xl flex items-center justify-center text-lg font-black transition-all group-hover:scale-110 shadow-inner",
+                              lead.intent === 'health' ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
+                              lead.intent === 'income' ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30" :
+                              lead.intent === 'agriculture' ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" :
+                              "bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/30"
+                            )}>
+                              <MessageCircle className="w-6 h-6" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-3 mb-1">
+                                <h4 className="text-lg font-black text-white hover:text-[#D4AF37] transition-colors truncate">{lead.name || 'Signature Anonyme'}</h4>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[8px] font-black px-2 py-0.5 bg-white/5 rounded-full text-white/30 tracking-widest border border-white/10 uppercase">
+                                    {lead.intent}
+                                  </span>
+                                  {lead.country && (
+                                    <span className="text-[8px] font-black px-2 py-0.5 bg-blue-500/10 rounded-full text-blue-400 tracking-widest border border-blue-500/20 uppercase flex items-center gap-1">
+                                      <Globe className="w-2 h-2" />
+                                      {lead.country}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 italic truncate leading-none">“{lead.message}”</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-10">
+                            <div className="text-right hidden sm:block">
+                              <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">Fréquence Temporelle</p>
+                              <div className="flex items-center gap-2 text-xs font-bold text-white/50">
+                                <Clock className="w-3 h-3 text-[#D4AF37]" />
+                                {format(new Date(lead.createdAt.valueOf?.() || lead.createdAt), 'dd MMM, HH:mm')}
+                              </div>
+                            </div>
+                            
+                            <div className={cn(
+                              "px-5 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] border shadow-2xl",
+                              lead.status === 'new' ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
+                              lead.status === 'contacted' ? "bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/30" :
+                              "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                            )}>
+                              {lead.status === 'new' ? 'Signal Brut' : lead.status === 'contacted' ? 'Interrogation' : 'Unité Acquise'}
+                            </div>
+                            
+                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/20 group-hover:text-[#D4AF37] transition-colors">
+                              <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Lead Details Modal */}
       <AnimatePresence>
@@ -580,7 +806,17 @@ export default function DashboardPage() {
                 <div className="grid md:grid-cols-2 gap-8">
                   <div className="space-y-6">
                     <section>
-                      <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Message Initial</h3>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Message Initial</h3>
+                        <button 
+                          onClick={() => speak(selectedLead.message)}
+                          className="p-1 px-2 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all text-[9px] font-black uppercase tracking-widest"
+                          title="Écouter le message"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                          <span>Écouter</span>
+                        </button>
+                      </div>
                       <div className="p-4 bg-slate-50 rounded-2xl text-sm text-slate-700 leading-relaxed font-medium italic">
                         "{selectedLead.message}"
                       </div>
@@ -650,40 +886,82 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-        {/* System Notifications/Tips */}
-        <div className="space-y-6">
-          <div className="bg-slate-900 rounded-3xl p-6 text-white overflow-hidden relative">
+        </div>
+
+        {/* Matrix Intelligence & Intel Feed */}
+        <div className="space-y-8">
+          <div className="bg-gradient-to-br from-slate-900 to-black rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl border border-white/5 group">
+            <div className="absolute -right-4 -top-4 w-32 h-32 bg-blue-600/20 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="relative z-10">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center mb-4">
-                <Rocket className="w-6 h-6" />
+              <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center mb-6 shadow-inner">
+                <Rocket className="w-6 h-6 text-blue-400 group-hover:bounce" />
               </div>
-              <h3 className="font-bold text-lg mb-2">Boostez vos ventes</h3>
-              <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                Essayez de partager votre lien de parrainage sur des groupes LinkedIn axés sur le "Bien-être" ou les "Propriétaires d'entreprises indépendantes".
+              <h3 className="text-xl font-black uppercase tracking-tighter mb-3">Expansion Tactique</h3>
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-8 leading-relaxed">
+                Le SmartLink détecte une forte activité sur <span className="text-[#D4AF37]">LinkedIn</span>. Optimisez votre vecteur d'entrée pour les profils type "Leader Indépendant".
               </p>
-              <button className="w-full py-3 bg-white text-slate-900 rounded-xl font-bold text-sm hover:bg-slate-100 transition-colors">
-                Lire le guide stratégique
+              <button className="w-full py-4 bg-white text-black rounded-2xl font-black uppercase tracking-widest text-[9px] hover:bg-[#D4AF37] transition-all flex items-center justify-center gap-2">
+                Déployer Stratégie <ArrowUpRight className="w-3 h-3" />
               </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-            <h3 className="font-bold text-slate-900 mb-4 flex items-center">
-              <Calendar className="w-5 h-5 mr-2 text-blue-600" />
-              Webinaire à venir
-            </h3>
-            <div className="space-y-4">
-              <div className="flex items-start space-x-4">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 flex flex-col items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-bold text-slate-400">AVR</span>
-                  <span className="font-bold text-slate-900 leading-none">28</span>
+          <div className="bg-white/5 backdrop-blur-2xl rounded-[2.5rem] p-8 border border-white/10 shadow-2xl relative overflow-hidden group">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <Calendar className="w-5 h-5 text-[#D4AF37]" />
+                <h3 className="text-sm font-black text-white uppercase tracking-[0.2em]">Flux Événements</h3>
+              </div>
+              <div className="w-2 h-2 rounded-full bg-[#D4AF37] animate-ping" />
+            </div>
+            
+            <div className="space-y-6">
+              {[
+                { day: '28', month: 'MAI', title: "IA & BioHacking Matrix", desc: "Transmission en direct", type: 'LIVE' },
+                { day: '02', month: 'JUIN', title: "Sommet des Bâtisseurs", desc: "Rassemblement Séquence Élite", type: 'VIP' }
+              ].map((evt, i) => (
+                <div key={i} className="flex items-center gap-5 p-4 rounded-2xl hover:bg-white/5 transition-colors border border-transparent hover:border-white/10">
+                  <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center text-center">
+                    <span className="text-[8px] font-black text-white/30 uppercase tracking-widest mb-0.5">{evt.month}</span>
+                    <span className="text-xl font-black text-[#D4AF37] leading-none">{evt.day}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-[10px] font-black text-white uppercase tracking-tight truncate mb-1">{evt.title}</h4>
+                    <p className="text-[8px] font-bold text-white/30 uppercase tracking-widest">{evt.desc}</p>
+                  </div>
+                  <div className={cn(
+                    "px-3 py-1 rounded-full text-[7px] font-black tracking-widest border",
+                    evt.type === 'LIVE' ? "bg-red-500/10 text-red-500 border-red-500/20" : "bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/20"
+                  )}>
+                    {evt.type}
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">Tirer parti de l'IA dans le MLM</h4>
-                  <p className="text-xs text-slate-500">En direct avec l'équipe NeoDigital</p>
+              ))}
+            </div>
+            
+            <button className="w-full mt-8 py-3 bg-white/5 border border-white/10 text-white/40 rounded-xl font-black uppercase tracking-widest text-[8px] hover:text-[#D4AF37] hover:border-[#D4AF37]/30 transition-all">
+              Accéder au Flux Complet
+            </button>
+          </div>
+
+          <div className="p-8 rounded-[2.5rem] bg-gradient-to-br from-indigo-900/40 to-transparent border border-indigo-500/20 relative overflow-hidden group">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-10 h-10 bg-indigo-500/20 rounded-xl flex items-center justify-center text-indigo-400">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-white uppercase tracking-tight">Réseau Networker</p>
+                <div className="flex -space-x-2 mt-1">
+                  {[1,2,3,4].map(i => (
+                    <div key={i} className="w-6 h-6 rounded-full border-2 border-[#050b18] bg-slate-800" />
+                  ))}
+                  <div className="w-6 h-6 rounded-full border-2 border-[#050b18] bg-indigo-600 flex items-center justify-center text-[8px] font-black text-white">+12</div>
                 </div>
               </div>
             </div>
+            <p className="text-[9px] font-black text-indigo-300/60 uppercase tracking-widest leading-relaxed">
+              12 nouveaux membres ont rejoint votre réseau via le SmartLink ce mois-ci.
+            </p>
           </div>
         </div>
       </div>

@@ -1,14 +1,15 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useSearchParams } from 'react-router-dom';
-import { Send, User as UserIcon, Bot, Loader2, Globe, Heart, DollarSign, Sprout, ShoppingCart, MessageCircle, Volume2, VolumeX, Trash2, Mic, MicOff, AlertCircle, Paperclip, X, Image as ImageIcon } from 'lucide-react';
+import { useSearchParams, Link } from 'react-router-dom';
+import { Send, User as UserIcon, Bot, Loader2, Globe, Heart, DollarSign, Sprout, ShoppingCart, MessageCircle, Volume2, VolumeX, Trash2, Mic, MicOff, AlertCircle, Paperclip, X, Image as ImageIcon, Rocket, Zap } from 'lucide-react';
 import { getCoachJoseResponse } from '../services/geminiService';
 import { useNotifications } from '../context/NotificationContext';
 import { ChatMessage, Lead, User } from '../types';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, query, where, getDocs, limit } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, getDocs, limit, doc, updateDoc } from 'firebase/firestore';
 import { isSubscriptionActive } from '../lib/subscription';
 import { FOUNDER_CONFIG } from '../constants';
+import { speak, stopSpeaking } from '../lib/tts';
 
 export default function ChatPage() {
   const { addNotification } = useNotifications();
@@ -38,6 +39,8 @@ export default function ChatPage() {
   const [speakingId, setSpeakingId] = React.useState<string | null>(null);
   const [isListening, setIsListening] = React.useState(false);
   const [hasInitializedProduct, setHasInitializedProduct] = React.useState(false);
+  const [currentLeadId, setCurrentLeadId] = React.useState<string | null>(null);
+  const [detectedIntent, setDetectedIntent] = React.useState<Lead['intent']>('unknown');
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const recognitionRef = React.useRef<any>(null);
 
@@ -122,42 +125,53 @@ export default function ChatPage() {
     }
   }, [messages, isTyping]);
 
-  const speak = (text: string, id: string) => {
-    if (!window.speechSynthesis) return;
-
+  const handleSpeak = (text: string, id: string) => {
     if (speakingId === id) {
-      window.speechSynthesis.cancel();
+      stopSpeaking();
       setSpeakingId(null);
       return;
     }
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Attempt to find a French voice if the text looks French, or just use default
-    // For simplicity, we just use default as auto-detection is usually handled by OS
-    
-    utterance.onend = () => setSpeakingId(null);
-    utterance.onerror = () => setSpeakingId(null);
-    
+    stopSpeaking();
     setSpeakingId(id);
-    window.speechSynthesis.speak(utterance);
+    speak(text, 'fr-FR');
+    
+    // Check when speech ends to reset UI
+    const checkEnd = setInterval(() => {
+      if (!window.speechSynthesis.speaking) {
+        setSpeakingId(null);
+        clearInterval(checkEnd);
+      }
+    }, 100);
   };
 
   const activeDistributor = distributor || FOUNDER_CONFIG;
+  const refQuery = refCode ? `?ref=${refCode}` : '';
 
-  const saveLead = async (message: string, intent: Lead['intent']) => {
-    const leadData = {
-      distributorId: distributor?.id || 'founder', // Use ID or 'founder' slug
-      message,
-      intent,
-      status: 'new',
-      createdAt: serverTimestamp(),
-    };
+  const trackLead = async (message: string, intent: Lead['intent'], status: Lead['status'] = 'new') => {
     try {
-      await addDoc(collection(db, 'leads'), leadData);
+      if (currentLeadId) {
+        const leadRef = doc(db, 'leads', currentLeadId);
+        await updateDoc(leadRef, { 
+          intent,
+          status,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        const leadData: Omit<Lead, 'id'> = {
+          distributorId: distributor?.id || 'founder',
+          message,
+          intent,
+          country: userCountry || undefined,
+          status,
+          createdAt: serverTimestamp() as any,
+        };
+        const docRef = await addDoc(collection(db, 'leads'), leadData);
+        setCurrentLeadId(docRef.id);
+      }
+      setDetectedIntent(intent);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'leads');
+      console.error("Error tracking lead:", error);
     }
   };
 
@@ -248,17 +262,24 @@ export default function ChatPage() {
     setIsTyping(true);
 
     try {
-      // Simple intent detection for the 1,2,3,4 flow
-      let intent: Lead['intent'] = 'unknown';
-      if (finalInput === '1' || finalInput.toLowerCase().includes('santé')) intent = 'health';
-      if (finalInput === '2' || finalInput.toLowerCase().includes('affaire')) intent = 'income';
-      if (finalInput === '3' || finalInput.toLowerCase().includes('agri')) intent = 'agriculture';
-      if (finalInput === '4' || finalInput.toLowerCase().includes('catalogue')) intent = 'products';
-      if (finalInput.toLowerCase().includes('produit') || finalInput.toLowerCase().includes('conseil')) intent = 'products';
+      // Intent detection
+      let intent: Lead['intent'] = detectedIntent;
+      let status: Lead['status'] = 'new';
 
-      if (intent !== 'unknown') {
-        saveLead(finalInput, intent);
+      const lowerInput = finalInput.toLowerCase();
+      if (finalInput === '1' || lowerInput.includes('santé') || lowerInput.includes('bien-être')) intent = 'health';
+      if (finalInput === '2' || lowerInput.includes('affaire') || lowerInput.includes('revenu') || lowerInput.includes('argent') || lowerInput.includes('business')) intent = 'income';
+      if (finalInput === '3' || lowerInput.includes('agri') || lowerInput.includes('culture') || lowerInput.includes('super gro')) intent = 'agriculture';
+      if (finalInput === '4' || lowerInput.includes('catalogue') || lowerInput.includes('boutique') || lowerInput.includes('produit')) intent = 'products';
+
+      // Detect conversion cues
+      if (lowerInput.includes('commander') || lowerInput.includes('acheter') || lowerInput.includes('whatsapp') || lowerInput.includes('boutique')) status = 'contacted';
+      if (lowerInput.includes('devenir distributeur') || lowerInput.includes('inscription') || lowerInput.includes('rejoindre')) {
+        intent = 'income';
+        status = 'contacted';
       }
+
+      await trackLead(finalInput, intent, status);
 
       const responseText = await getCoachJoseResponse(messages.concat(userMessage).map(m => ({
         role: m.role,
@@ -367,7 +388,7 @@ export default function ChatPage() {
                   {msg.content}
                   {msg.role === 'model' && (
                     <button
-                      onClick={() => speak(msg.content, msg.id)}
+                      onClick={() => handleSpeak(msg.content, msg.id)}
                       className={cn(
                         "absolute -right-10 top-0 p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100 bg-white shadow-sm border border-slate-100",
                         speakingId === msg.id ? "opacity-100 text-blue-600" : "text-slate-400 hover:text-blue-600"
@@ -421,24 +442,32 @@ export default function ChatPage() {
               animate={{ opacity: 1, y: 0 }}
               className="px-4 py-2 flex flex-wrap gap-2 justify-center border-t border-slate-100 bg-slate-50/50"
             >
+              {detectedIntent === 'income' && (
+                <Link
+                  to={`/login${refQuery}`}
+                  className="flex items-center space-x-2 px-6 py-2 bg-[#D4AF37] text-black rounded-xl text-sm font-black uppercase tracking-widest shadow-lg hover:bg-white transition-all active:scale-95"
+                >
+                  <Rocket className="w-4 h-4" />
+                  <span>Démarrer Maintenant</span>
+                </Link>
+              )}
+              
               <a 
-                href={`https://wa.me/${activeDistributor.whatsapp?.replace(/\+/g, '').replace(/\s/g, '')}`}
+                href={`https://wa.me/${activeDistributor.whatsapp?.replace(/\+/g, '').replace(/\s/g, '')}?text=${encodeURIComponent("Bonjour j'aimerais en savoir plus après ma discussion avec Coach José")}`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-xl text-sm font-bold shadow-md hover:bg-green-600 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-bold shadow-md hover:bg-emerald-600 transition-colors"
               >
                 <MessageCircle className="w-4 h-4" />
-                <span>Contacter {activeDistributor.displayName.split(' ')[0]}</span>
+                <span>WhatsApp Expert</span>
               </a>
-              <a 
-                href={activeDistributor.neoLifeShopUrl || FOUNDER_CONFIG.shopUrl}
-                target="_blank"
-                rel="noreferrer"
+              <Link 
+                to={`/catalog${refQuery}`}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors"
               >
                 <ShoppingCart className="w-4 h-4" />
-                <span>Visiter la boutique</span>
-              </a>
+                <span>Voir le Catalogue</span>
+              </Link>
             </motion.div>
           )}
         </AnimatePresence>

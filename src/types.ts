@@ -39,6 +39,13 @@ export interface Lead {
   updatedAt?: string;
 }
 
+export interface Testimonial {
+  id: string;
+  author: string;
+  text: string;
+  rating: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -47,6 +54,7 @@ export interface Product {
   countries: string[];
   shopUrl: string;
   imageUrl?: string;
+  testimonials?: Testimonial[];
   createdAt: string;
 }
 

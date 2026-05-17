@@ -22,22 +22,28 @@ const translations: Translations = {
     pt: "Automação inteligente para distribuidores ambiciosos."
   },
   hero_title_elite: {
-    fr: "GMBC-OS: L'Élite de l'automatisation NeoLife",
-    en: "GMBC-OS: The Elite of NeoLife Automation",
-    es: "GMBC-OS: La Élite de la automatización NeoLife",
-    pt: "GMBC-OS: A Elite da automação NeoLife"
+    fr: "Millionnaires Sans Frontières",
+    en: "Millionaires Without Borders",
+    es: "Millonarios Sin Fronteras",
+    pt: "Milionários Sem Fronteiras"
   },
   hero_description: {
-    fr: "La solution ultime pour transformer votre business. Consultation gratuite pour les visiteurs. Système de croissance premium pour les distributeurs.",
-    en: "The ultimate solution to transform your business. Free consultation for visitors. Premium growth system for distributors.",
-    es: "La solución definitiva para transformar su negocio. Consulta gratuita para visitantes. Sistema de crecimiento premium para distribuidores.",
-    pt: "A solução definitiva para transformar o seu negócio. Consulta gratuita para visitantes. Sistema de crescimento premium para distribuidores."
+    fr: "NeoLife — 60 ans d'excellence mondiale — libéré du MLM traditionnel grâce à l'IA et au GMBC-OS.",
+    en: "NeoLife — 60 years of global excellence — freed from traditional MLM thanks to AI and GMBC-OS.",
+    es: "NeoLife — 60 años de excelencia global — liberado del MLM tradicional gracias a la IA y GMBC-OS.",
+    pt: "NeoLife — 60 anos de excelência global — liberto do MLM tradicional graças à IA e ao GMBC-OS."
   },
   start_with_jose: {
-    fr: "Démarrer avec Coach José",
-    en: "Start with Coach José",
-    es: "Empezar con Coach José",
-    pt: "Começar com Coach José"
+    fr: "Rejoindre Coach José AI",
+    en: "Join Coach José AI",
+    es: "Unirse a Coach José AI",
+    pt: "Juntar-se ao Coach José AI"
+  },
+  subscribe_neolife: {
+    fr: "S'inscrire sur NeoLife",
+    en: "Register on NeoLife",
+    es: "Registrarse en NeoLife",
+    pt: "Registar-se na NeoLife"
   },
   distributor_portal: {
     fr: "Portail Distributeur",
@@ -72,30 +78,45 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const detectLanguage = async () => {
+      // Priority 1: User choice (could be saved in local storage)
+      const savedLang = localStorage.getItem('gmbc_user_lang') as Language;
+      if (savedLang && ['fr', 'en', 'es', 'pt'].includes(savedLang)) {
+        setLanguage(savedLang);
+        return;
+      }
+
+      // Priority 2: Browser language
+      const browserLang = navigator.language.split('-')[0] as Language;
+      if (['fr', 'en', 'es', 'pt'].includes(browserLang)) {
+        setLanguage(browserLang);
+        // We continue to IP detection if it's not a common lang, or just return
+      }
+
       try {
-        // Try IP-based detection first for "country-based" accuracy
-        const response = await fetch('https://ipapi.co/json/');
+        // Try IP-based detection with a timeout to avoid hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const response = await fetch('https://ipapi.co/json/', { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error('Network response was not ok');
+        
         const data = await response.json();
         const countryCode = data.country_code?.toLowerCase();
 
         const countryToLang: Record<string, Language> = {
-          'fr': 'fr', 'be': 'fr', 'ch': 'fr', 'bj': 'fr', 'tg': 'fr', 'ci': 'fr', 'sn': 'fr', 'cm': 'fr',
-          'us': 'en', 'gb': 'en', 'ca': 'en', 'ng': 'en', 'gh': 'en', 'ke': 'en',
-          'es': 'es', 'mx': 'es', 'ar': 'es',
+          'fr': 'fr', 'be': 'fr', 'ch': 'fr', 'bj': 'fr', 'tg': 'fr', 'ci': 'fr', 'sn': 'fr', 'cm': 'fr', 'ga': 'fr', 'gn': 'fr',
+          'us': 'en', 'gb': 'en', 'ca': 'en', 'ng': 'en', 'gh': 'en', 'ke': 'en', 'za': 'en',
+          'es': 'es', 'mx': 'es', 'ar': 'es', 'co': 'es', 'pe': 'es',
           'pt': 'pt', 'br': 'pt', 'ao': 'pt', 'mz': 'pt'
         };
 
         if (countryCode && countryToLang[countryCode]) {
           setLanguage(countryToLang[countryCode]);
-        } else {
-          // Fallback to browser language
-          const browserLang = navigator.language.split('-')[0] as Language;
-          if (['fr', 'en', 'es', 'pt'].includes(browserLang)) {
-            setLanguage(browserLang);
-          }
         }
       } catch (error) {
-        console.error("Language detection failed", error);
+        // Silently fail, we already set browser language as fallback
       }
     };
 
@@ -106,8 +127,13 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return translations[key]?.[language] || key;
   };
 
+  const setLanguageAndStore = (lang: Language) => {
+    setLanguage(lang);
+    localStorage.setItem('gmbc_user_lang', lang);
+  };
+
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, t }}>
+    <LanguageContext.Provider value={{ language, setLanguage: setLanguageAndStore, t }}>
       {children}
     </LanguageContext.Provider>
   );

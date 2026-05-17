@@ -7,6 +7,6 @@ export const FOUNDER_CONFIG = {
 };
 
 export const SUBSCRIPTION_CONFIG = {
-  price: 25000, // FCFA per month for example
+  price: 10000, // FCFA per month for example (Starter/Automate Pack)
   affiliateCommission: 0.20, // 20%
 };

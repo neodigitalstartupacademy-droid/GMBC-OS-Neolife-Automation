@@ -21,8 +21,10 @@ import {
 import { auth } from '../lib/firebase';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { useNotifications } from '../context/NotificationContext';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const { language, setLanguage, t } = useLanguage();
   const [user] = useAuthState(auth);
   const location = useLocation();
   const [isOpen, setIsOpen] = React.useState(false);
@@ -31,7 +33,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const navigation = [
     { name: 'Accueil', href: '/', icon: Rocket },
-    { name: 'Coach José', href: '/chat', icon: MessageSquare },
+    { name: 'Coach José', href: 'https://gmbcoreos.com/s/coachjose', icon: MessageSquare, external: true },
     { name: 'Catalogue', href: '/catalog', icon: ShoppingBag },
     ...(user ? [
       { name: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
@@ -73,6 +75,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {navigation.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.href;
+                if (item.external) {
+                  return (
+                    <a
+                      key={item.name}
+                      href={item.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center space-x-2 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{item.name}</span>
+                    </a>
+                  );
+                }
                 return (
                   <Link
                     key={item.name}
@@ -103,6 +119,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <span>{adminNav.name}</span>
                 </Link>
               )}
+
+              {/* Language Selector */}
+              <div className="flex items-center gap-1 px-3 py-1 bg-slate-50 rounded-xl border border-slate-100 ml-2">
+                {[
+                  { code: 'fr', label: 'FR' },
+                  { code: 'en', label: 'EN' },
+                  { code: 'es', label: 'ES' },
+                  { code: 'pt', label: 'PT' }
+                ].map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => setLanguage(lang.code as any)}
+                    className={cn(
+                      "px-2 py-1 rounded-lg text-[9px] font-black transition-all",
+                      language === lang.code 
+                        ? "bg-white text-blue-600 shadow-sm" 
+                        : "text-slate-400 hover:text-slate-900"
+                    )}
+                  >
+                    {lang.label}
+                  </button>
+                ))}
+              </div>
 
               {!user ? (
                 <Link
@@ -231,20 +270,36 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               className="md:hidden bg-white border-b border-slate-200"
             >
               <div className="px-4 pt-2 pb-3 space-y-1">
-                {navigation.map((item) => (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    onClick={() => setIsOpen(false)}
-                    className={cn(
-                      "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors",
-                      location.pathname === item.href ? "text-blue-600 bg-blue-50" : "text-slate-700"
-                    )}
-                  >
-                    <item.icon className="w-5 h-5" />
-                    <span>{item.name}</span>
-                  </Link>
-                ))}
+                {navigation.map((item) => {
+                  if (item.external) {
+                    return (
+                      <a
+                        key={item.name}
+                        href={item.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center space-x-3 px-3 py-2 rounded-md font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <item.icon className="w-5 h-5" />
+                        <span>{item.name}</span>
+                      </a>
+                    );
+                  }
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.href}
+                      onClick={() => setIsOpen(false)}
+                      className={cn(
+                        "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors",
+                        location.pathname === item.href ? "text-blue-600 bg-blue-50" : "text-slate-700"
+                      )}
+                    >
+                      <item.icon className="w-5 h-5" />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
                 {!user ? (
                   <Link
                     to="/login"
@@ -290,8 +345,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div>
               <h3 className="text-white font-black text-[10px] uppercase tracking-widest mb-4">Liens Rapides</h3>
               <ul className="space-y-2 text-[11px] font-bold uppercase tracking-tight">
-                <li><Link to="/chat" className="hover:text-blue-400">Coach José</Link></li>
-                <li><Link to="/login" className="hover:text-blue-400">Portail Distributeur</Link></li>
+                <li><a href="https://gmbcoreos.com/s/coachjose" className="hover:text-blue-400">Coach José</a></li>
+                <li><a href="https://gmbcoreos.com" className="hover:text-blue-400">Portail GMBC-OS</a></li>
               </ul>
             </div>
             <div>

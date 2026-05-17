@@ -24,7 +24,11 @@ service cloud.firestore {
              (data.createdAt is timestamp || data.createdAt is string) &&
              (!('subscriptionStatus' in data) || data.subscriptionStatus in ['active', 'expired', 'trial']) &&
              (!('whatsapp' in data) || (data.whatsapp is string && data.whatsapp.size() <= 32)) &&
-             (!('neoLifeShopUrl' in data) || (data.neoLifeShopUrl is string && data.neoLifeShopUrl.size() <= 512));
+             (!('neoLifeShopUrl' in data) || (data.neoLifeShopUrl is string && data.neoLifeShopUrl.size() <= 512)) &&
+             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 32)) &&
+             (!('country' in data) || (data.country is string && data.country.size() <= 128)) &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp || data.updatedAt is string)) &&
+             (!('googleAccessToken' in data) || (data.googleAccessToken is string && data.googleAccessToken.size() <= 2048));
     }
 
     match /users/{userId} {
@@ -36,19 +40,26 @@ service cloud.firestore {
                     incoming().email == existing().email &&
                     (isAdmin() || (
                       incoming().role == existing().role &&
-                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'whatsapp', 'neoLifeShopUrl', 'referredBy'])
+                      incoming().diff(existing()).affectedKeys().hasOnly([
+                        'displayName', 'photoURL', 'whatsapp', 'neoLifeShopUrl', 
+                        'referredBy', 'phoneNumber', 'country', 'updatedAt',
+                        'googleAccessToken'
+                      ])
                     ));
       allow delete: if isAdmin();
     }
 
     // --- Leads Validation ---
     function isValidLead(data) {
-      return data.keys().hasAll(['distributorId', 'intent', 'message', 'status', 'createdAt']) &&
+      let requiredFields = ['distributorId', 'intent', 'message', 'status', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
              data.distributorId is string && data.distributorId.size() <= 128 &&
              data.intent in ['health', 'income', 'agriculture', 'products', 'unknown'] &&
              data.message is string && data.message.size() <= 5000 &&
              data.status in ['new', 'contacted', 'converted'] &&
-             (data.createdAt is timestamp || data.createdAt is string);
+             (data.createdAt is timestamp || data.createdAt is string) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp || data.updatedAt is string));
     }
 
     match /leads/{leadId} {
@@ -59,6 +70,12 @@ service cloud.firestore {
                     isValidLead(incoming()) &&
                     incoming().distributorId == existing().distributorId;
       allow delete: if isAdmin();
+    }
+
+    // --- Announcements ---
+    match /announcements/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // --- Products Validation ---

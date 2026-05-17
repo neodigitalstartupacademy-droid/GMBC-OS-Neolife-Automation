@@ -10,7 +10,36 @@
     0% { transform: translateX(0); }
     100% { transform: translateX(-100%); }
   }
-  .animate-marquee {
-    animation: marquee 30s linear infinite;
+  @keyframes gradient-x {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+  @keyframes shimmer {
+    0% { transform: translateX(-100%) skewX(12deg); }
+    100% { transform: translateX(100%) skewX(12deg); }
+  }
+  @keyframes bounce-slow {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+  }
+  .animate-gradient-x {
+    animation: gradient-x 5s ease infinite;
+  }
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+  }
+  .group:hover .group-hover\:bounce {
+    animation: bounce-slow 0.6s ease infinite;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #D4AF37;
+    border-radius: 10px;
   }
 }

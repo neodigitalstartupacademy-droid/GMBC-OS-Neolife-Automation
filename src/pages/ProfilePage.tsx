@@ -403,7 +403,7 @@ export default function ProfilePage() {
                   className="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 active:scale-95"
                   onClick={() => window.open('https://wa.me/2290195388292?text=Je%20souhaite%20renouveler%20mon%20abonnement%20GMBC-OS', '_blank')}
                 >
-                  Renouveler 25.000 FCFA
+                  Renouveler 10.000 FCFA
                 </button>
                 
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">

@@ -24,32 +24,33 @@ export default function LoginPage() {
       const accessToken = credential?.accessToken;
 
       // Check if user exists in Firestore
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
       
       if (!userDoc.exists()) {
-        // Create initial profile
-        await setDoc(doc(db, 'users', user.uid), {
+        const initialUser = {
           id: user.uid,
           email: user.email,
           displayName: user.displayName || 'Distributor',
           photoURL: user.photoURL,
           referralCode: user.uid.slice(0, 8),
-          role: 'user', // Default to user, admin manually promotes
+          role: 'user',
           createdAt: new Date().toISOString(),
-          serverTimestamp: serverTimestamp(),
-          googleAccessToken: accessToken, // Store token for the session
-        });
+          googleAccessToken: accessToken || '',
+        };
+        // Create initial profile
+        await setDoc(userDocRef, initialUser);
       } else {
         // Update token
-        await setDoc(doc(db, 'users', user.uid), {
-          googleAccessToken: accessToken,
+        await setDoc(userDocRef, {
+          googleAccessToken: accessToken || '',
         }, { merge: true });
       }
 
       navigate('/dashboard');
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Login failed. Please try again.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'users/login');
+      setError('Échec de la connexion. Veuillez réessayer.');
     } finally {
       setIsLoading(false);
     }
